@@ -1,0 +1,5 @@
+sphinx_rtd_theme
+sphinx
+ipython
+python-rtmidi
+numpy
