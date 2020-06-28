@@ -1,4 +1,5 @@
 import time
+import argparse
 import rtmidi
 from rtmidi.midiconstants import (CONTROL_CHANGE, NOTE_ON, PROGRAM_CHANGE)
 
@@ -37,6 +38,32 @@ typeMap = {
     144: "Note On",
     128: "Note Off"
 }
+
+
+class MidiObject(object):
+    def __init__(self, channel=0, status="cc", value=90, data=None):
+        self.channel = channel
+        self.status = status
+        self.value = value
+        self.data = data
+
+
+class MidiObjectTrigger(MidiObject):
+    def __init__(self, channel=0, status="cc", value=90, data=None, minActivationThreshold=1,
+                 maxActivationThreshold=127):
+        self.__init__(channel, status, value, data)
+        self.minActivationThreshold = minActivationThreshold
+        self.minActivationThreshold = maxActivationThreshold
+
+class MidiAutoEngager(object):
+    def __abs__(self, activation_message=None, enable_message=None, disable_message=None,
+                timeout=0.5):
+        self.activation_message = activation_message
+        self.enable_message = enable_message
+        self.disable_message = disable_message
+        self.timeout = timeout
+
+
 
 class MidiCCAutoEngage(object):
     def __init__(self):
@@ -185,6 +212,80 @@ def run():
 
 
 if __name__  =="__main__":
+    parser = argparse.ArgumentParser(description='Midi Auto Engage/Disenage Program')
+
+    parser.add_argument('-i', dest='inputPortName',
+                        default="",
+                        help='Name of input Midi port, if empty, will use first one detected')
+
+    parser.add_argument('-o', dest='outputPortName',
+                        default="RTMidiOut",
+                        help='Name of output Midi port to create, default is RTMidiOut')
+
+    """
+    Configure:
+    
+    # trigger message:
+    input->channel
+    input->type {note_on,note_off,program_change,control_change}
+    input->value # value of the message type
+    
+    # OPTIONAL trigger enable message (sends message on trigger)
+    trigger_enable->channel
+    trigger_enable->type {note_on,note_off,program_change,control_change}
+    trigger_enable->value # value of the message type
+    trigger_enable->data # only for control_change really, {default=127, range [1, 127]}
+    
+    # minimum value on which to trigger Enable Action (do not activate if first value below this)
+    trigger_enable->minActivationThreshold {default=1, range [1,127] -> only for input->type==control_change}
+     
+    # max value on which to trigger Enable Action (do not activate if first value above this)
+    trigger_enable->maxActivationThreshold {default=127, range [1,127] -> only for input->type==control_change} 
+
+    
+    trigger_disable->channel
+    trigger_disable->type {note_on,note_off,program_change,control_change}
+    trigger_disable->value # value of the message type
+    trigger_disable->data # only for control_change really, {default=127, range [1, 127]}
+    
+    # minimum value on which to trigger Disable Action (do not deactivate if last value below this)
+    trigger_disable->minActivationThreshold {default=1, range [1,127] -> only for input->type==control_change}
+     
+    # max value on which to trigger Disable Action (do not deactivate if last value above this)
+    trigger_disable->maxActivationThreshold {default=127, range [1,127] -> only for input->type==control_change} 
+    
+    trigger_timeout {s to wait on non-activity before sending disable message, default 0.5}
+    
+    Need to validate that trigger_enable and trigger_disable objects are not the same
+    Can create enable and disable objects from a common object
+    
+    ^^ build an AutoEngage object per requested config.
+    AutoEngage{
+        activate_message,
+        enable_message,
+        disable_message,
+        timeout
+    }
+    
+    """
+
+    parser.add_argument('-t', dest='inputs',
+                        nargs="+",
+                        default="",
+                        help='Directory, list of directories, files, list of files, or mixed to scan for impk files')
+
+    parser.add_argument('-k', dest='output',
+                        default="",
+                        help='output csv file')
+
+    parser.add_argument('--walk',
+                        action='store_true',
+                        dest="walk",
+                        default=False,
+                        help="walk within directories")
+
+
+    args = parser.parse_args()
     midiout = run()
     del midiout
 
