@@ -1,7 +1,7 @@
 import time
 import argparse
 import rtmidi
-from rtmidi.midiconstants import (CONTROL_CHANGE, NOTE_ON, PROGRAM_CHANGE)
+from rtmidi.midiconstants import *
 
 """
 Program notes:
@@ -34,176 +34,28 @@ Deactivation timeout (s)
 
 """
 
-typeMap = {
-    192: "Program Change",
-    176: "Control Change",
-    144: "Note On",
-    128: "Note Off"
-}
 
-intToStatus ={
-    192: "pc",
-    176: "cc",
-    144: "noteOn",
-    128: "noteOff"
-}
+def generateMidiMessage(status, data1=None, data2=None, ch=None):
+        """Generate Midi Message."""
+        msg = [(status & 0xF0) | ((ch if ch else 1) - 1 & 0xF)]
 
-statusToInt = {
-    "pc": 192,
-    "cc": 176,
-    "noteOn": 144,
-    "noteOff": 128,
-}
+        if data1 is not None:
+            msg.append(data1 & 0x7F)
 
-def statusIsCC(status):
-    return intToStatus[status] == 'cc'
+            if data2 is not None:
+                msg.append(data2 & 0x7F)
 
-def isSysex(msg):
-    return msg[0] == 0xF0
-
-def decodeMessageIntoParts(event):
-    """
-    returns non-SysEx message as [channel, status, data1, data2, timeSinceLastMessage]
-    """
-    if not event:
-        return None
-
-    msg, deltaTimeinS = event
-
-    if isSysex(msg):
-        return None
-
-    channel = (msg[0] & 0xF) + 1
-    status = msg[0] & 0xF0
-
-    num_bytes = len(msg)
-    data1 = data2 = None
-
-    if num_bytes >= 2:
-        data1 = msg[1]
-    if num_bytes >= 3:
-        data2 = msg[2]
-
-    return (channel, status, data1, data2, deltaTimeinS)
+        return msg
 
 
 
-class MidiObject(object):
-    """
-    How to descriminate between Sysex & regular message?
-    """
-    def __init__(self, channel=0, status="cc", value=90, data=None):
-        self.channel = channel
-        self.status = status
-        self.value = value
-        self.data = data
 
-
-class MidiObjectTrigger(MidiObject):
-    def __init__(self, channel=0, status="cc", value=90, data=None, minActivationThreshold=1,
-                 maxActivationThreshold=127):
-        MidiObject.__init__(self, channel, status, value, data)
-        self.minActivationThreshold = minActivationThreshold
-        self.minActivationThreshold = maxActivationThreshold
-
-class MidiAutoEngager(object):
-    def __abs__(self, activation_message=None, enable_message=None, disable_message=None,
-                timeout=0.5):
-        self.activation_message = activation_message
-        self.enable_message = enable_message
-        self.disable_message = disable_message
-        self.timeout = timeout
-
-
-
-class MidiCCAutoEngage(object):
-    def __init__(self):
-        self.pedalActivated = False
-        self.timeSincelastMsg = -1
-        self.timeOfLastMsg = -1
-        self.sendChannel = 1
-        self.data1 = None
-        self.data2 = None
-        self.timeOutInS = 0.5
-        self.deactivationThreshold = 20
-        self.activationChannel = 1
-        self.activationMessageValue = 93
-        self.sendChannel = 1
-        self.sendMessageValue = 94
-        self.midiOutputPort = None
-
-
-    def __call__(self, event, data=None):
-        # this is only activated if message has been received...
-        if self.pedalActivated:
-            self.timeSincelastMsg = time.time() - self.timeOfLastMsg
-            if self.timeSincelastMsg > self.timeOutInS and self.data2 < self.deactivationThreshold:
-                self.midiOutputPort.send_message([CONTROL_CHANGE | self.sendChannel, self.sendMessageValue, 0])
-                self.pedalActivated = False
-
-        msg, deltatime = event
-        if msg[0] < 0xF0:
-            channel = (msg[0] & 0xF) + 1
-            status = msg[0] & 0xF0
-        else:
-            status = msg[0]
-            channel = None
-
-        num_bytes = len(msg)
-
-        if num_bytes >= 2:
-            self.data1 = msg[1]
-        if num_bytes >= 3:
-            self.data2 = msg[2]
-
-        if statusIsCC(status) and self.data1 == 93:
-            if not self.pedalActivated:
-                self.midiOutputPort.send_message([CONTROL_CHANGE | self.sendChannel, self.sendMessageValue, 127])
-            self.pedalActivated = True
-            self.timeOfLastMsg = time.time()
-
-    def validate(self):
-        """
-        Returns true if input message matches activation message
-        """
-        return True
-
-
-class MidiInputHandler(object):
-    def __init__(self, port, config=""):
-        self.port = port
-        self._wallclock = time.time()
-        self.commands = dict()
-        # self.load_config(config)
-
-    def __call__(self, event, data=None):
-        event, deltatime = event
-        self._wallclock += deltatime
-
-        if event[0] < 0xF0:
-            channel = (event[0] & 0xF) + 1
-            status = event[0] & 0xF0
-        else:
-            status = event[0]
-            channel = None
-
-        data1 = data2 = None
-        num_bytes = len(event)
-
-        if num_bytes >= 2:
-            data1 = event[1]
-        if num_bytes >= 3:
-            data2 = event[2]
-
-
-
-def main():
-    midiInput = rtmidi.MidiIn()
-    midiOutput = rtmidi.MidiOut()
-    # TODO: generate auto port or get input from argument list:
-    midiInputPort = midiInput.open_port(1)
-    # TODO: Register callback to input port: -> can probably set the call back to an internal class function
-    midiInputPort.set_callback(MidiCCAutoEngage())
+def doMessagesMatch(msgA=None, msgB=None):
+    try:
+        minMessageLength = min([len(msgA), len(msgB)])
+        return msgA[:minMessageLength] == msgB[:minMessageLength]
+    except Exception as e:
+        print(e)
 
 def run():
     midiInput = rtmidi.MidiIn()
@@ -215,34 +67,59 @@ def run():
     outputPort = midiOutput.open_virtual_port("RToutput2")
 
     inputPortName = 'RToutput1'
+    while inputPortName not in availableInputPorts:
+        time.sleep(0.5)
+        availableInputPorts = midiInput.get_ports()
+
     inputPort = midiInput.open_port(availableInputPorts.index(inputPortName))
 
+    inputActivationMessageChannel = 2
+    inputActivationMessageStatus = CONTROL_CHANGE
     inputActivationMessageValue = 90
+    autoEngageMessageChannel = 2
+    autoEngageMessageStatus = CONTROL_CHANGE
+    autoEngageMessageValue = 94
+    autoDisengageMessageStatus = NOTE_OFF if autoEngageMessageStatus == NOTE_ON else autoEngageMessageStatus
+    autoDisenageLowThreshold = 0
+    autoDisenageHighThreshold = 20
     pedalActivated = False
     timeSincelastMsg = -1
     timeOfLastMsg = -1
-    sendChannel = 1
     lastValidMessage = None
 
+    activationMessage = generateMidiMessage(inputActivationMessageStatus, data1=inputActivationMessageValue,
+                                            ch=inputActivationMessageChannel)
+
+    enableMessage = generateMidiMessage(autoEngageMessageStatus, data1=autoEngageMessageValue,
+                                        data2=127, ch=autoEngageMessageChannel)
+    disableMessage = generateMidiMessage(autoDisengageMessageStatus, data1=autoEngageMessageValue,
+                                        data2=0, ch=autoEngageMessageChannel)
 
     while True:
         msg = inputPort.get_message()
-        parsedMessage = decodeMessageIntoParts(msg)
+        # check timout:
         if pedalActivated:
             timeSincelastMsg = time.time() - timeOfLastMsg
-            if timeSincelastMsg > 0.5 and lastValidMessage[3] < 20:
-                outputPort.send_message([CONTROL_CHANGE | sendChannel, 94, 0])
+            if timeSincelastMsg > 0.5 and \
+                    (autoDisenageLowThreshold < lastValidMessage[2] < autoDisenageHighThreshold):
+                outputPort.send_message(disableMessage)
                 pedalActivated = False
                 print("Deactivating AutoEngage")
-        if parsedMessage:
-            if statusIsCC(parsedMessage[1]) and parsedMessage[2] == inputActivationMessageValue:
+
+        # decode & check msg filteR:
+        if msg:
+            if doMessagesMatch(activationMessage, msg[0]):
                 if not pedalActivated:
-                    outputPort.send_message([CONTROL_CHANGE | sendChannel, 94, 127])
+                    outputPort.send_message(enableMessage)
                     print("AutoEngage")
                 pedalActivated = True
                 timeOfLastMsg = time.time()
-                lastValidMessage = parsedMessage
-        time.sleep(0.01)
+                lastValidMessage = msg[0]
+            time.sleep(0.01)
+        """
+        TODO: if the port is closed externally, this program has no knowledge, there should be
+        testing done by querying availble ports...
+        """
 
     del midiout
 
