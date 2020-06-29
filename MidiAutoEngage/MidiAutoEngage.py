@@ -6,6 +6,8 @@ from rtmidi.midiconstants import (CONTROL_CHANGE, NOTE_ON, PROGRAM_CHANGE)
 """
 Program notes:
 
+rtMidi encodes status & Channel into first part of message
+
 RTMIDI channel/status map:
     192: "Program Change",
     176: "Control Change",
@@ -39,8 +41,57 @@ typeMap = {
     128: "Note Off"
 }
 
+intToStatus ={
+    192: "pc",
+    176: "cc",
+    144: "noteOn",
+    128: "noteOff"
+}
+
+statusToInt = {
+    "pc": 192,
+    "cc": 176,
+    "noteOn": 144,
+    "noteOff": 128,
+}
+
+def statusIsCC(status):
+    return intToStatus[status] == 'cc'
+
+def isSysex(msg):
+    return msg[0] == 0xF0
+
+def decodeMessageIntoParts(event):
+    """
+    returns non-SysEx message as [channel, status, data1, data2, timeSinceLastMessage]
+    """
+    if not event:
+        return None
+
+    msg, deltaTimeinS = event
+
+    if isSysex(msg):
+        return None
+
+    channel = (msg[0] & 0xF) + 1
+    status = msg[0] & 0xF0
+
+    num_bytes = len(msg)
+    data1 = data2 = None
+
+    if num_bytes >= 2:
+        data1 = msg[1]
+    if num_bytes >= 3:
+        data2 = msg[2]
+
+    return (channel, status, data1, data2, deltaTimeinS)
+
+
 
 class MidiObject(object):
+    """
+    How to descriminate between Sysex & regular message?
+    """
     def __init__(self, channel=0, status="cc", value=90, data=None):
         self.channel = channel
         self.status = status
@@ -51,7 +102,7 @@ class MidiObject(object):
 class MidiObjectTrigger(MidiObject):
     def __init__(self, channel=0, status="cc", value=90, data=None, minActivationThreshold=1,
                  maxActivationThreshold=127):
-        self.__init__(channel, status, value, data)
+        MidiObject.__init__(self, channel, status, value, data)
         self.minActivationThreshold = minActivationThreshold
         self.minActivationThreshold = maxActivationThreshold
 
@@ -105,7 +156,7 @@ class MidiCCAutoEngage(object):
         if num_bytes >= 3:
             self.data2 = msg[2]
 
-        if status == 176 and self.data1 == 93:
+        if statusIsCC(status) and self.data1 == 93:
             if not self.pedalActivated:
                 self.midiOutputPort.send_message([CONTROL_CHANGE | self.sendChannel, self.sendMessageValue, 127])
             self.pedalActivated = True
@@ -151,7 +202,7 @@ def main():
     midiOutput = rtmidi.MidiOut()
     # TODO: generate auto port or get input from argument list:
     midiInputPort = midiInput.open_port(1)
-    # TODO: Register callback:
+    # TODO: Register callback to input port: -> can probably set the call back to an internal class function
     midiInputPort.set_callback(MidiCCAutoEngage())
 
 def run():
@@ -159,68 +210,68 @@ def run():
     midiOutput = rtmidi.MidiOut()
 
     availableInputPorts = midiInput.get_ports()
-    availableOutputPorts = midiOutput.get_ports()
 
     # create output port
-    outputPort = midiOutput.open_virtual_port("rtoutput")
+    outputPort = midiOutput.open_virtual_port("RToutput2")
 
-    inputPort = midiInput.open_port(1)
-    # inputPort.set_callback(MidiInputHandler(1))
+    inputPortName = 'RToutput1'
+    inputPort = midiInput.open_port(availableInputPorts.index(inputPortName))
 
+    inputActivationMessageValue = 90
     pedalActivated = False
     timeSincelastMsg = -1
     timeOfLastMsg = -1
     sendChannel = 1
+    lastValidMessage = None
 
 
     while True:
         msg = inputPort.get_message()
+        parsedMessage = decodeMessageIntoParts(msg)
         if pedalActivated:
             timeSincelastMsg = time.time() - timeOfLastMsg
-            if timeSincelastMsg > 0.5 and data2 < 20:
+            if timeSincelastMsg > 0.5 and lastValidMessage[3] < 20:
                 outputPort.send_message([CONTROL_CHANGE | sendChannel, 94, 0])
                 pedalActivated = False
-        if msg:
-            msg, deltatime = msg
-            if msg[0] < 0xF0:
-                channel = (msg[0] & 0xF) + 1
-                status = msg[0] & 0xF0
-            else:
-                status = msg[0]
-                channel = None
-
-            data1 = data2 = None
-            num_bytes = len(msg)
-
-            if num_bytes >= 2:
-                data1 = msg[1]
-            if num_bytes >= 3:
-                data2 = msg[2]
-
-            if status == 176 and data1 == 93:
+                print("Deactivating AutoEngage")
+        if parsedMessage:
+            if statusIsCC(parsedMessage[1]) and parsedMessage[2] == inputActivationMessageValue:
                 if not pedalActivated:
                     outputPort.send_message([CONTROL_CHANGE | sendChannel, 94, 127])
+                    print("AutoEngage")
                 pedalActivated = True
                 timeOfLastMsg = time.time()
-
-
-            print("{:s}, {:s}, {:d}, {:s}, {:f}".format(str(channel) or '-', typeMap[status], data1, str(data2) or '', timeSincelastMsg))
+                lastValidMessage = parsedMessage
         time.sleep(0.01)
 
-
-    return midiout
+    del midiout
 
 
 if __name__  =="__main__":
+    messageTypes = ['noteOn', 'noteOff', 'PC', 'CC']
     parser = argparse.ArgumentParser(description='Midi Auto Engage/Disenage Program')
 
-    parser.add_argument('-i', dest='inputPortName',
+    parser.add_argument('-i', '--inputPort', dest='inputPortName',
                         default="",
                         help='Name of input Midi port, if empty, will use first one detected')
 
-    parser.add_argument('-o', dest='outputPortName',
+    parser.add_argument('-o', '--outputPort', dest='outputPortName',
                         default="RTMidiOut",
                         help='Name of output Midi port to create, default is RTMidiOut')
+
+    parser.add_argument('-ch', dest='inputChannel',
+                        default=1,
+                        metavar="[0,15]",
+                        choices=range(0,16),
+                        type=int,
+                        help="Select input channel for triggering message")
+
+    parser.add_argument('-s', dest='inputStatus',
+                        default='noteOn',
+                        metavar="[noteOn, noteOff, PC, CC]",
+                        choices=messageTypes,
+                        type=str,
+                        help="Select input message type")
 
     """
     Configure:
@@ -269,23 +320,8 @@ if __name__  =="__main__":
     
     """
 
-    parser.add_argument('-t', dest='inputs',
-                        nargs="+",
-                        default="",
-                        help='Directory, list of directories, files, list of files, or mixed to scan for impk files')
-
-    parser.add_argument('-k', dest='output',
-                        default="",
-                        help='output csv file')
-
-    parser.add_argument('--walk',
-                        action='store_true',
-                        dest="walk",
-                        default=False,
-                        help="walk within directories")
-
 
     args = parser.parse_args()
-    midiout = run()
-    del midiout
+    run()
+    # del midiout
 
