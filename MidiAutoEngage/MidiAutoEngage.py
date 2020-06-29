@@ -34,6 +34,28 @@ Deactivation timeout (s)
 
 """
 
+__charStatusToCode = {
+    'pc': PROGRAM_CHANGE,
+    'programchange': PROGRAM_CHANGE,
+    'program change': PROGRAM_CHANGE,
+    'program_change': PROGRAM_CHANGE,
+    'cc': CONTROL_CHANGE,
+    'controlchange': CONTROL_CHANGE,
+    'control change': CONTROL_CHANGE,
+    'control_change': CONTROL_CHANGE,
+    'on': NOTE_ON,
+    'noteon': NOTE_ON,
+    'note on': NOTE_ON,
+    'note_on': NOTE_ON,
+    'off': NOTE_OFF,
+    'noteoff': NOTE_OFF,
+    'note off': NOTE_OFF,
+    'note_off': NOTE_OFF,
+}
+
+def charStatusToCode(status=""):
+    return __charStatusToCode[status.lower()]
+
 
 def generateMidiMessage(status, data1=None, data2=None, ch=None):
         """Generate Midi Message."""
@@ -136,19 +158,27 @@ if __name__  =="__main__":
                         default="RTMidiOut",
                         help='Name of output Midi port to create, default is RTMidiOut')
 
-    parser.add_argument('-ch', dest='inputChannel',
+    parser.add_argument('-c', '--inputActivationChannel',
+                        dest='inputActivationChannel',
                         default=1,
                         metavar="[0,15]",
                         choices=range(0,16),
                         type=int,
                         help="Select input channel for triggering message")
 
-    parser.add_argument('-s', dest='inputStatus',
+    parser.add_argument('-s', '--inputActivationStatus',
+                        dest='inputActivationStatus',
                         default='noteOn',
                         metavar="[noteOn, noteOff, PC, CC]",
                         choices=messageTypes,
                         type=str,
                         help="Select input message type")
+
+    parser.add_argument('-v', dest='inputActivationValue',
+                        default=90,
+                        type=int,
+                        choices=range(0,128),
+                        help="Select input activation message value")
 
     """
     Configure:
