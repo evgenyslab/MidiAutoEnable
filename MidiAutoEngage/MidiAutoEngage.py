@@ -110,7 +110,7 @@ def run(args):
         if pedalActivated:
             timeSincelastMsg = time.time() - timeOfLastMsg
             if timeSincelastMsg > 0.5 and \
-                    (autoDisenageLowThreshold < lastValidMessage[2] < autoDisenageHighThreshold):
+                    (autoDisenageLowThreshold <= lastValidMessage[2] <= autoDisenageHighThreshold):
                 outputPort.send_message(disableMessage)
                 pedalActivated = False
                 print("Deactivating AutoEngage")
@@ -148,7 +148,7 @@ if __name__  =="__main__":
 
     parser.add_argument('-c', '--inputActivationChannel',
                         dest='inputActivationChannel',
-                        default=1,
+                        default=2,
                         metavar="[0,15]",
                         choices=range(0,16),
                         type=int,
@@ -164,14 +164,14 @@ if __name__  =="__main__":
 
     parser.add_argument('-v', '--inputActivationValue',
                         dest='inputActivationValue',
-                        default=90,
+                        default=93,
                         type=int,
                         choices=range(0,128),
                         help="Select input activation message value")
 
     parser.add_argument('-t', '--triggerChannel',
                         dest='triggerChannel',
-                        default=1,
+                        default=2,
                         metavar="[0,15]",
                         choices=range(0, 16),
                         type=int,
